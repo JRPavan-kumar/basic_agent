@@ -1,0 +1,98 @@
+import unittest
+import io
+import sys
+from agent_file import StudentAgent, EvaluationAgent, OutputAgent, ToolManager, run_agent, STUDENT_DATABASE
+
+
+class TestBoundedAgenticBehavior(unittest.TestCase):
+
+    def setUp(self):
+        # Make sure the database has only valid known entries during each test
+        self.original_database = STUDENT_DATABASE.copy()
+        STUDENT_DATABASE.clear()
+        STUDENT_DATABASE.update({
+            "S101": {"name": "Rahul", "marks": 82},
+            "S102": {"name": "Priya", "marks": 91}
+        })
+
+    def tearDown(self):
+        STUDENT_DATABASE.clear()
+        STUDENT_DATABASE.update(self.original_database)
+
+    def test_student_agent_valid_student(self):
+        student = StudentAgent().get_student("S101")
+        self.assertEqual(student["name"], "Rahul")
+        self.assertEqual(student["marks"], 82)
+
+    def test_student_agent_missing_student(self):
+        with self.assertRaises(ValueError) as context:
+            StudentAgent().get_student("S999")
+        self.assertIn("Student ID 'S999' not found", str(context.exception))
+
+    def test_student_agent_incomplete_student_data(self):
+        STUDENT_DATABASE["S103"] = {"name": "Kiran"}
+        with self.assertRaises(ValueError) as context:
+            StudentAgent().get_student("S103")
+        self.assertIn("Student details are incomplete", str(context.exception))
+
+    def test_evaluation_agent_grade_boundaries(self):
+        self.assertEqual(EvaluationAgent().evaluate({"marks": 95}), "A+")
+        self.assertEqual(EvaluationAgent().evaluate({"marks": 75}), "A")
+        self.assertEqual(EvaluationAgent().evaluate({"marks": 60}), "B")
+        self.assertEqual(EvaluationAgent().evaluate({"marks": 40}), "C")
+        self.assertEqual(EvaluationAgent().evaluate({"marks": 20}), "Fail")
+
+    def test_tool_manager_valid_tool(self):
+        tool = ToolManager().use_tool("StudentAgent")
+        self.assertIsInstance(tool, StudentAgent)
+
+    def test_tool_manager_invalid_tool(self):
+        with self.assertRaises(Exception) as context:
+            ToolManager().use_tool("AttendanceAgent")
+        self.assertIn("Tool 'AttendanceAgent' is not available", str(context.exception))
+
+    def test_run_agent_prints_report(self):
+        captured_output = io.StringIO()
+        sys_stdout = sys.stdout
+        sys.stdout = captured_output
+        try:
+            run_agent("S101", "StudentAgent")
+        finally:
+            sys.stdout = sys_stdout
+
+        output = captured_output.getvalue()
+        self.assertIn("Student Report", output)
+        self.assertIn("Rahul", output)
+        self.assertIn("82", output)
+        self.assertIn("A", output)
+
+    def test_run_agent_handles_invalid_tool(self):
+        captured_output = io.StringIO()
+        sys_stdout = sys.stdout
+        sys.stdout = captured_output
+        try:
+            run_agent("S101", "AttendanceAgent")
+        finally:
+            sys.stdout = sys_stdout
+
+        output = captured_output.getvalue()
+        self.assertIn("ERROR:", output)
+        self.assertIn("Tool 'AttendanceAgent' is not available", output)
+
+    def test_run_agent_handles_incomplete_student(self):
+        STUDENT_DATABASE["S104"] = {"name": "Anjali"}
+        captured_output = io.StringIO()
+        sys_stdout = sys.stdout
+        sys.stdout = captured_output
+        try:
+            run_agent("S104", "StudentAgent")
+        finally:
+            sys.stdout = sys_stdout
+
+        output = captured_output.getvalue()
+        self.assertIn("ERROR:", output)
+        self.assertIn("Student details are incomplete", output)
+
+
+if __name__ == "__main__":
+    unittest.main()
